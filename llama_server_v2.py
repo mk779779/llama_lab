@@ -37,7 +37,7 @@ def retrieve_relevant_text(query, sentences, embeddings, top_k=5):
     return relevant_text
 
 
-def query_llama_model(prompt, retrieved_text, model="llama3.2:latest"):
+def query_llama_model_rag(prompt, retrieved_text, model="llama3.2:latest"):
     headers = {"Content-Type": "application/json"}
 
     full_prompt = f"Context: {retrieved_text}\n\nQuestion: {prompt}\nAnswer:"
@@ -50,6 +50,34 @@ def query_llama_model(prompt, retrieved_text, model="llama3.2:latest"):
         return response.json().get("response", "No response")
     else:
         return f"Error: {response.status_code} - {response.text}"
+
+
+def query_llama_model(prompt, model="llama3.2:latest"):
+    headers = {"Content-Type": "application/json"}
+
+    payload = {"model": model, "prompt": prompt}
+
+    url = "http://localhost:11434/api/generate"
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, stream=True)
+
+        if response.status_code == 200:
+            full_response = ""
+            for chunk in response.iter_lines():
+                if chunk:
+                    data = json.loads(chunk.decode("utf-8"))
+                    full_response += data.get("response", "")
+
+                    if data.get("done", False):
+                        break
+
+            return full_response
+        else:
+            return f"Error: {response.status_code} - {response.text}"
+
+    except requests.exceptions.RequestException as e:
+        return f"Request failed: {e}"
 
 
 @app.route("/upload", methods=["POST"])
@@ -83,9 +111,30 @@ def upload_pdf():
         return jsonify({"error": "Only PDF files are allowed."}), 400
 
 
+# query pdf
 @app.route("/query", methods=["POST"])
-def query_pdf():
+def query():
+    # def query_model():
+    #     data = request.get_json()
+
+    #     if not data or "prompt" not in data:
+    #         return jsonify({"error": "Invalid request, 'prompt' field is required."}), 400
+
+    #     prompt = data["prompt"]
+
+    #     response = query_llama_model(prompt)
+
+    #     return jsonify({"response": response})
     data = request.get_json()
+    if not data or "prompt" not in data:
+        return jsonify({"error": "Invalid request, 'prompt' field is required."}), 400
+
+    if len(data) == 1:
+        prompt = data["prompt"]
+        response = query_llama_model(prompt)
+        return jsonify({"response": response})
+
+    print("data:", data)
 
     if not data or "prompt" not in data or "pdf_id" not in data:
         return (
@@ -106,7 +155,7 @@ def query_pdf():
 
     relevant_text = retrieve_relevant_text(prompt, sentences, embeddings)
 
-    response = query_llama_model(prompt, relevant_text)
+    response = query_llama_model_rag(prompt, relevant_text)
 
     return jsonify({"response": response})
 
